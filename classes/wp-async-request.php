@@ -59,16 +59,19 @@ if ( ! class_exists( 'WP_Async_Request' ) ) {
 			$this->identifier = $this->prefix . '_' . $this->action;
 
 			// Use REST API for requests.
-			if( $this->is_rest() ){
-				add_action( 'rest_api_init', function () {
-					register_rest_route( 'background_process/v1', $this->identifier, array(
-						'methods'	 => 'POST',
-						'callback' => array( $this, 'maybe_handle' ),
-					));
-				});
-			}
-			// Use AJAX API
-			else{
+			if ( $this->is_rest() ) {
+				add_action(
+					'rest_api_init', function () {
+						register_rest_route(
+							'background_process/v1', $this->identifier, array(
+								'methods'    => 'POST',
+								'callback' => array( $this, 'maybe_handle' ),
+							)
+						);
+					}
+				);
+			} // Use AJAX API
+			else {
 				add_action( 'wp_ajax_' . $this->identifier, array( $this, 'maybe_handle' ) );
 				add_action( 'wp_ajax_nopriv_' . $this->identifier, array( $this, 'maybe_handle' ) );
 			}
@@ -208,7 +211,7 @@ if ( ! class_exists( 'WP_Async_Request' ) ) {
 		 *
 		 * @return boolean
 		 */
-		protected function is_rest(){
+		protected function is_rest() {
 			return ( property_exists( $this, 'use_rest' ) && true === $this->use_rest );
 		}
 
@@ -217,10 +220,14 @@ if ( ! class_exists( 'WP_Async_Request' ) ) {
 		 *
 		 * @return (WP_Error|WP_HTTP_Response|mixed)
 		 */
-		protected function send_or_die(){
+		protected function send_or_die() {
 			// If using REST API, return a response.
-			if( $this->is_rest() ){
-				return rest_ensure_response( array('success' => true) );
+			if ( $this->is_rest() ) {
+				return rest_ensure_response(
+					array(
+						'success' => true,
+					)
+				);
 			}
 
 			// Because WP AJAX will only work if the page dies.
@@ -261,11 +268,11 @@ if ( ! class_exists( 'WP_Async_Request' ) ) {
 		 *
 		 * Check if nonce is valid, else die.
 		 */
-		protected function check_nonce(){
+		protected function check_nonce() {
 			$action = $this->identifier;
 			$query_arg = 'nonce';
 
-			if( $this->is_rest() ){
+			if ( $this->is_rest() ) {
 				$action = 'wp_rest';
 				$query_arg = '_wpnonce';
 			}
