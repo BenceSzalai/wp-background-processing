@@ -269,6 +269,12 @@ if ( ! class_exists( 'WP_Async_Request' ) ) {
 		 * Check if nonce is valid, else die.
 		 */
 		protected function check_nonce() {
+			
+			$bypass = apply_filters($this->identifier . '_bypass_nonce_verification', false );
+			if( $bypass ) {
+				return;
+			}
+			
 			$action = $this->identifier;
 			$query_arg = 'nonce';
 
@@ -276,7 +282,7 @@ if ( ! class_exists( 'WP_Async_Request' ) ) {
 				$action = 'wp_rest';
 				$query_arg = '_wpnonce';
 			}
-
+			
 			check_ajax_referer( $action, $query_arg );
 		}
 

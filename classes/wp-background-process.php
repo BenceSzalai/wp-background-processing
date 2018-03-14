@@ -171,7 +171,7 @@ if ( ! class_exists( 'WP_Background_Process' ) ) {
 				// No data to process.
 				return $this->send_or_die();
 			}
-
+			
 			$this->check_nonce();
 
 			$this->handle();
