@@ -142,7 +142,7 @@ if ( ! class_exists( 'WP_Async_Request' ) ) {
 		 */
 		public function maybe_handle() {
 			// Don't lock up other requests while processing.
-			session_write_close();
+            $this->close_http_connection();
 
 			check_ajax_referer( $this->identifier, 'nonce' );
 
@@ -150,6 +150,35 @@ if ( ! class_exists( 'WP_Async_Request' ) ) {
 
 			wp_die();
 		}
+
+        /**
+         * Finishes replying to the client, but keeps the process running for further (async) code execution.
+         * Ripped from \WC_Background_Emailer::close_http_connection()
+         * @see https://core.trac.wordpress.org/ticket/41358
+         */
+        protected function close_http_connection()
+        {
+            // Only 1 PHP process can access a session object at a time, close this so the next request isn't kept waiting.
+            // @codingStandardsIgnoreStart
+            if (session_id()) {
+                session_write_close();
+            }
+            // @codingStandardsIgnoreEnd
+
+            wc_set_time_limit(0);
+
+            // fastcgi_finish_request is the cleanest way to send the response and keep the script running, but not every server has it.
+            if (is_callable('fastcgi_finish_request')) {
+                fastcgi_finish_request();
+            } else {
+                // Fallback: send headers and flush buffers.
+                if (!headers_sent()) {
+                    header('Connection: close');
+                }
+                @ob_end_flush(); // phpcs:ignore Generic.PHP.NoSilencedErrors.Discouraged
+                flush();
+            }
+        }
 
 		/**
 		 * Handle
