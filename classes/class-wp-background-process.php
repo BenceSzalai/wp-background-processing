@@ -197,12 +197,15 @@ if ( ! class_exists( 'WP_Background_Process' ) ) {
 
 			$key = $wpdb->esc_like( $this->identifier . '_batch_' ) . '%';
 
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
 			$count = $wpdb->get_var(
 				$wpdb->prepare(
 					"SELECT COUNT(*) FROM {$table} WHERE {$column} LIKE %s ",
 					$key
 				)
 			);
+		// phpcs:enable WordPress.DB.DirectDatabaseQuery.NoCaching
 
 			return ( $count > 0 ) ? false : true;
 		}
@@ -273,12 +276,15 @@ if ( ! class_exists( 'WP_Background_Process' ) ) {
 
 			$key = $wpdb->esc_like( $this->identifier . '_batch_' ) . '%';
 
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
 			$query = $wpdb->get_row(
 				$wpdb->prepare(
 					"SELECT * FROM {$table} WHERE {$column} LIKE %s ORDER BY {$key_column} ASC LIMIT 1",
 					$key
 				)
 			);
+		// phpcs:enable WordPress.DB.DirectDatabaseQuery.NoCaching
 
 			$batch       = new stdClass();
 			$batch->key  = $query->$column;
