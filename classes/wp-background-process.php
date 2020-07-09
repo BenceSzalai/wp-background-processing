@@ -160,7 +160,7 @@ if ( ! class_exists( 'WP_Background_Process' ) ) {
 		 */
 		public function maybe_handle() {
 			// Don't lock up other requests while processing.
-			session_write_close();
+			$this->close_http_connection();
 
 			if ( $this->is_process_running() ) {
 				// Background process already running.
