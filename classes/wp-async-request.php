@@ -58,8 +58,21 @@ if ( ! class_exists( 'WP_Async_Request' ) ) {
 		public function __construct() {
 			$this->identifier = $this->prefix . '_' . $this->action;
 
-			add_action( 'wp_ajax_' . $this->identifier, array( $this, 'maybe_handle' ) );
-			add_action( 'wp_ajax_nopriv_' . $this->identifier, array( $this, 'maybe_handle' ) );
+			// Use REST API for requests.
+			if( $this->is_rest() ){
+				add_action( 'rest_api_init', function () {
+					register_rest_route( 'background_process/v1', $this->identifier, array(
+						'methods'	 => 'POST',
+						'callback' => array( $this, 'maybe_handle' ),
+					));
+				});
+			}
+			// Use AJAX API
+			else{
+				add_action( 'wp_ajax_' . $this->identifier, array( $this, 'maybe_handle' ) );
+				add_action( 'wp_ajax_nopriv_' . $this->identifier, array( $this, 'maybe_handle' ) );
+			}
+
 		}
 
 		/**
@@ -96,6 +109,12 @@ if ( ! class_exists( 'WP_Async_Request' ) ) {
 			if ( property_exists( $this, 'query_args' ) ) {
 				return $this->query_args;
 			}
+			
+			if( $this->is_rest() ){
+				return array(
+					'_wpnonce'  => wp_create_nonce( 'wp_rest' ),
+				);
+			}
 
 			$args = array(
 				'action' => $this->identifier,
@@ -118,6 +137,10 @@ if ( ! class_exists( 'WP_Async_Request' ) ) {
 		protected function get_query_url() {
 			if ( property_exists( $this, 'query_url' ) ) {
 				return $this->query_url;
+			}
+			
+			if( $this->is_rest() ){
+				return rest_url( 'background_process/v1/' . $this->identifier  );
 			}
 
 			$url = admin_url( 'admin-ajax.php' );
@@ -147,13 +170,19 @@ if ( ! class_exists( 'WP_Async_Request' ) ) {
 				'cookies'   => $_COOKIE,
 				'sslverify' => apply_filters( 'https_local_ssl_verify', false ),
 			);
-
+			
+			if( $this->is_rest() ){
+				unset( $args['blocking'] );
+			}
+			
 			/**
 			 * Filters the post arguments used during an async request.
 			 *
 			 * @param array $args
 			 */
-			return apply_filters( $this->identifier . '_post_args', $args );
+			$args = apply_filters( $this->identifier . '_post_args', $args );
+			
+			return $args;
 		}
 
 		/**
@@ -165,10 +194,36 @@ if ( ! class_exists( 'WP_Async_Request' ) ) {
 			// Don't lock up other requests while processing.
             $this->close_http_connection();
 
-			check_ajax_referer( $this->identifier, 'nonce' );
+			$this->check_nonce();
 
 			$this->handle();
 
+			return $this->send_or_die();
+		}
+
+		/**
+		 * Is REST.
+		 *
+		 * Checks if request is set to use the WordPress REST API instead of AJAX.
+		 *
+		 * @return boolean
+		 */
+		protected function is_rest(){
+			return ( property_exists( $this, 'use_rest' ) && true === $this->use_rest );
+		}
+
+		/**
+		 * Send or die
+		 *
+		 * @return (WP_Error|WP_HTTP_Response|mixed)
+		 */
+		protected function send_or_die(){
+			// If using REST API, return a response.
+			if( $this->is_rest() ){
+				return rest_ensure_response( array('success' => true) );
+			}
+
+			// Because WP AJAX will only work if the page dies.
 			wp_die();
 		}
 
@@ -200,6 +255,23 @@ if ( ! class_exists( 'WP_Async_Request' ) ) {
                 flush();
             }
         }
+
+		/**
+		 * Check Nonce.
+		 *
+		 * Check if nonce is valid, else die.
+		 */
+		protected function check_nonce(){
+			$action = $this->identifier;
+			$query_arg = 'nonce';
+
+			if( $this->is_rest() ){
+				$action = 'wp_rest';
+				$query_arg = '_wpnonce';
+			}
+
+			check_ajax_referer( $action, $query_arg );
+		}
 
 		/**
 		 * Handle

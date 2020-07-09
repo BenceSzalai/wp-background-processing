@@ -164,19 +164,19 @@ if ( ! class_exists( 'WP_Background_Process' ) ) {
 
 			if ( $this->is_process_running() ) {
 				// Background process already running.
-				wp_die();
+				return $this->send_or_die();
 			}
 
 			if ( $this->is_queue_empty() ) {
 				// No data to process.
-				wp_die();
+				return $this->send_or_die();
 			}
 
-			check_ajax_referer( $this->identifier, 'nonce' );
+			$this->check_nonce();
 
 			$this->handle();
 
-			wp_die();
+			return $this->send_or_die();
 		}
 
 		/**
@@ -337,7 +337,7 @@ if ( ! class_exists( 'WP_Background_Process' ) ) {
 				$this->complete();
 			}
 
-			wp_die();
+			return $this->send_or_die();
 		}
 
 		/**
