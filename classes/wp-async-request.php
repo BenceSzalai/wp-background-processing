@@ -114,16 +114,17 @@ if ( ! class_exists( 'WP_Async_Request' ) ) {
 			}
 			
 			if( $this->is_rest() ){
-				return array(
+				$args = array(
 					'_wpnonce'  => wp_create_nonce( 'wp_rest' ),
 				);
 			}
-
-			$args = array(
-				'action' => $this->identifier,
-				'nonce'  => wp_create_nonce( $this->identifier ),
-			);
-
+			else {
+				$args = [
+					'action' => $this->identifier,
+					'nonce'  => wp_create_nonce( $this->identifier ),
+				];
+			}
+			
 			/**
 			 * Filters the post arguments used during an async request.
 			 *
@@ -143,10 +144,11 @@ if ( ! class_exists( 'WP_Async_Request' ) ) {
 			}
 			
 			if( $this->is_rest() ){
-				return rest_url( 'background_process/v1/' . $this->identifier  );
+				$url = rest_url( 'background_process/v1/' . $this->identifier  );
 			}
-
-			$url = admin_url( 'admin-ajax.php' );
+			else {
+				$url = admin_url( 'admin-ajax.php' );
+			}
 
 			/**
 			 * Filters the post arguments used during an async request.
