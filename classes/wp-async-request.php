@@ -249,8 +249,13 @@ if ( ! class_exists( 'WP_Async_Request' ) ) {
                 session_write_close();
             }
             // @codingStandardsIgnoreEnd
-
-            wc_set_time_limit(0);
+	
+	        if ( function_exists( 'wc_set_time_limit' ) ) {
+	            wc_set_time_limit( 0 );
+            }
+            else {
+		        @set_time_limit( 0 ); // @codingStandardsIgnoreLine
+	        }
 
             // fastcgi_finish_request is the cleanest way to send the response and keep the script running, but not every server has it.
             if (is_callable('fastcgi_finish_request')) {
