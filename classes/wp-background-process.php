@@ -14,9 +14,10 @@ if ( ! class_exists( 'WP_Background_Process' ) ) {
 	 * @extends WP_Async_Request
 	 */
 	abstract class WP_Background_Process extends WP_Async_Request {
-
+		
 		/**
-		 * Action
+		 * Action used to create the second part of the unique {@see WP_Async_Request::$identifier}
+		 * in {@see WP_Async_Request::__construct()}.
 		 *
 		 * (default value: 'background_process')
 		 *
@@ -26,7 +27,9 @@ if ( ! class_exists( 'WP_Background_Process' ) ) {
 		protected $action = 'background_process';
 
 		/**
-		 * Start time of current process.
+		 * Start time of current process as a Unix timestamp.
+		 *
+		 * Set in {@see WP_Background_Process::lock_process()}.
 		 *
 		 * (default value: 0)
 		 *
@@ -34,9 +37,11 @@ if ( ! class_exists( 'WP_Background_Process' ) ) {
 		 * @access protected
 		 */
 		protected $start_time = 0;
-
+		
 		/**
-		 * Cron_hook_identifier
+		 * Unique identifier for the WP based cron health check.
+		 *
+		 * Created from {@see WP_Async_Request::$identifier} in {@see WP_Async_Request::__construct()}.
 		 *
 		 * @var mixed
 		 * @access protected
@@ -44,15 +49,28 @@ if ( ! class_exists( 'WP_Background_Process' ) ) {
 		protected $cron_hook_identifier;
 
 		/**
-		 * Cron_interval_identifier
+		 * Unique identifier for the WP based cron health check interval.
+		 *
+		 * Created from {@see WP_Async_Request::$identifier} in {@see WP_Async_Request::__construct()}.
 		 *
 		 * @var mixed
 		 * @access protected
 		 */
 		protected $cron_interval_identifier;
-
+		
 		/**
-		 * Initiate new background process
+		 * The Batch (an array) that contains the Items being processed.
+		 *
+		 * @var array
+		 */
+		protected $data = array();
+		
+		/**
+		 * Initiates a new background process
+		 *
+		 * - Sets {@see WP_Async_Request::$cron_hook_identifier}
+		 * - Sets {@see WP_Async_Request::$cron_interval_identifier}
+		 * - Registers the cron health check with WP.
 		 */
 		public function __construct() {
 			parent::__construct();
@@ -63,12 +81,13 @@ if ( ! class_exists( 'WP_Background_Process' ) ) {
 			add_action( $this->cron_hook_identifier, array( $this, 'handle_cron_healthcheck' ) );
 			add_filter( 'cron_schedules', array( $this, 'schedule_cron_healthcheck' ) );
 		}
-
+		
 		/**
-		 * Dispatch
+		 * Dispatches the async request and schedules a health check.
 		 *
-		 * @access public
-		 * @return array|WP_Error
+		 * @uses schedule_event()
+		 *
+		 * @return array|WP_Error The response from a {@see wp_remote_post()} call.
 		 */
 		public function dispatch() {
 			// Schedule the cron healthcheck.
@@ -79,9 +98,10 @@ if ( ! class_exists( 'WP_Background_Process' ) ) {
 		}
 
 		/**
-		 * Push to queue
+		 * Adds an Item to the Batch stored in the class
+		 * (i.e. adds an item as a new array element to the the {@see WP_Background_Process::$data}) array.
 		 *
-		 * @param mixed $data Data.
+		 * @param array $data The Item to be added.
 		 *
 		 * @return $this
 		 */
@@ -92,7 +112,9 @@ if ( ! class_exists( 'WP_Background_Process' ) ) {
 		}
 
 		/**
-		 * Save queue
+		 * Saves the current Batch ({@see WP_Background_Process::$data}) in the db Queue as a new Batch.
+		 *
+		 * Note: This does not updates the actual Batch in the Queue, but adds as a new Batch at the end.
 		 *
 		 * @return $this
 		 */
@@ -105,12 +127,13 @@ if ( ! class_exists( 'WP_Background_Process' ) ) {
 
 			return $this;
 		}
-
+		
 		/**
-		 * Update queue
+		 * Updates a Batch in the db Queue with the current Batch ({@see WP_Background_Process::$data}).
 		 *
-		 * @param string $key  Key.
-		 * @param array  $data Data.
+		 * @param string $key  The key that identifies the Batch.
+		 *                     (The name of the option used with {@see update_site_option()}.
+		 * @param array  $data The Batch to be saved.
 		 *
 		 * @return $this
 		 */
@@ -123,9 +146,10 @@ if ( ! class_exists( 'WP_Background_Process' ) ) {
 		}
 
 		/**
-		 * Delete queue
+		 * Deletes a Batch from the db Queue.
 		 *
-		 * @param string $key Key.
+		 * @param string $key The key that identifies the Batch.
+		 *                    (The name of the option used with {@see delete_site_option()}.
 		 *
 		 * @return $this
 		 */
@@ -136,16 +160,18 @@ if ( ! class_exists( 'WP_Background_Process' ) ) {
 		}
 
 		/**
-		 * Generate key
+		 * Generates a key to be used to save a new Batch in the db Queue.
 		 *
-		 * Generates a unique key based on microtime. Queue items are
+		 * Generates a unique key based on microtime. Batches are
 		 * given a unique key so that they can be merged upon save.
 		 *
-		 * @param int $length Length.
+		 * @param int $length The length of the key to generate.
+		 *                    Should be substantially bigger than the length of the {@see WP_Async_Request::$identifier}!
 		 *
 		 * @return string
 		 */
 		protected function generate_key( $length = 64 ) {
+			// ToDo: ensure a suitable minimum length based on the length of $this->identifier
 			$unique  = md5( microtime() . rand() );
 			$prepend = $this->identifier . '_batch_';
 
@@ -153,10 +179,14 @@ if ( ! class_exists( 'WP_Background_Process' ) ) {
 		}
 
 		/**
-		 * Maybe process queue
+		 * Conditionally handles the current request if all of these conditions are met:
+		 * - the nonce check is passed,
+		 * - there is at least one Batch in the db Queue,
+		 * - the process is not running already,
 		 *
-		 * Checks whether data exists within the queue and that
-		 * the process is not already running.
+		 * It also closes the HTTP connection ASAP in order to free up the WebServer to process other requests if needed.
+		 *
+		 * @uses WP_Background_Process::handle()
 		 */
 		public function maybe_handle() {
 			// Don't lock up other requests while processing.
@@ -180,7 +210,7 @@ if ( ! class_exists( 'WP_Background_Process' ) ) {
 		}
 
 		/**
-		 * Is queue empty
+		 * Checks if there are any Batches in the db Queue.
 		 *
 		 * @return bool
 		 */
@@ -197,24 +227,31 @@ if ( ! class_exists( 'WP_Background_Process' ) ) {
 
 			$key = $wpdb->esc_like( $this->identifier . '_batch_' ) . '%';
 
-		// phpcs:disable WordPress.DB.DirectDatabaseQuery.NoCaching
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+			// phpcs:disable WordPress.DB.DirectDatabaseQuery.NoCaching
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
 			$count = $wpdb->get_var(
 				$wpdb->prepare(
 					"SELECT COUNT(*) FROM {$table} WHERE {$column} LIKE %s ",
 					$key
 				)
 			);
-		// phpcs:enable WordPress.DB.DirectDatabaseQuery.NoCaching
+			// phpcs:enable WordPress.DB.DirectDatabaseQuery.NoCaching
 
 			return ( $count > 0 ) ? false : true;
 		}
 
 		/**
-		 * Is process running
+		 * Checks if there is a Process Lock in place,
+		 * i.e. checks if another instance of the current process running already.
 		 *
-		 * Check whether the current process is already running
-		 * in a background process.
+		 * This implementation is based on WP site Transients.
+		 * Override with more reliable approach if needed.
+		 *
+		 * @see lock_process()
+		 * @see unlock_process()
+		 *
+		 * @return boolean
+		 *
 		 */
 		protected function is_process_running() {
 			if ( get_site_transient( $this->identifier . '_process_lock' ) ) {
@@ -226,11 +263,15 @@ if ( ! class_exists( 'WP_Background_Process' ) ) {
 		}
 
 		/**
-		 * Lock process
+		 * Sets the Process Lock.
+		 * Locks the process so that multiple instances can't run simultaneously.
 		 *
-		 * Lock the process so that multiple instances can't run simultaneously.
-		 * Override if applicable, but the duration should be greater than that
-		 * defined in the time_exceeded() method.
+		 * This implementation is based on WP site Transients.
+		 * Override with more reliable approach if needed, but the lock duration
+		 * should be greater than that used in the {@see time_exceeded()} method.
+		 *
+		 * @see is_process_running()
+		 * @see unlock_process()
 		 */
 		protected function lock_process() {
 			$this->start_time = time(); // Set start time of current process.
@@ -242,9 +283,15 @@ if ( ! class_exists( 'WP_Background_Process' ) ) {
 		}
 
 		/**
-		 * Unlock process
+		 * Removes the Process Lock.
 		 *
 		 * Unlock the process so that other instances can spawn.
+		 *
+		 * This implementation is based on WP site Transients.
+		 * Override with more reliable approach if needed.
+		 *
+		 * @see is_process_running()
+		 * @see lock_process()
 		 *
 		 * @return $this
 		 */
@@ -255,9 +302,10 @@ if ( ! class_exists( 'WP_Background_Process' ) ) {
 		}
 
 		/**
-		 * Get batch
+		 * Gets the next (i.e. the first) Batch from the db Queue.
 		 *
-		 * @return stdClass Return the first batch from the queue
+		 * @return stdClass Batch object where the `key` attribute is the Batch key and the `data` attribute is the actual
+		 *                  data of the Batch containing the Items to be processed.
 		 */
 		protected function get_batch() {
 			global $wpdb;
@@ -276,15 +324,15 @@ if ( ! class_exists( 'WP_Background_Process' ) ) {
 
 			$key = $wpdb->esc_like( $this->identifier . '_batch_' ) . '%';
 
-		// phpcs:disable WordPress.DB.DirectDatabaseQuery.NoCaching
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+			// phpcs:disable WordPress.DB.DirectDatabaseQuery.NoCaching
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
 			$query = $wpdb->get_row(
 				$wpdb->prepare(
 					"SELECT * FROM {$table} WHERE {$column} LIKE %s ORDER BY {$key_column} ASC LIMIT 1",
 					$key
 				)
 			);
-		// phpcs:enable WordPress.DB.DirectDatabaseQuery.NoCaching
+			// phpcs:enable WordPress.DB.DirectDatabaseQuery.NoCaching
 
 			$batch       = new stdClass();
 			$batch->key  = $query->$column;
@@ -292,12 +340,16 @@ if ( ! class_exists( 'WP_Background_Process' ) ) {
 
 			return $batch;
 		}
-
+		
 		/**
-		 * Handle
+		 * Handles the actual processing of the next Batch from the Queue.
 		 *
-		 * Pass each queue item to the task handler, while remaining
-		 * within server memory and time limit constraints.
+		 * It passes each Item in the Batch to the task handler ({@see task()}),
+		 * while remaining within server memory and time limit constraints.
+		 *
+		 * When the constraints are reached, but there are Batches still to be processed
+		 * it calls {@see dispatch()} to continue processing in a new request.
+		 *
 		 */
 		protected function handle() {
 			$this->lock_process();
@@ -341,10 +393,9 @@ if ( ! class_exists( 'WP_Background_Process' ) ) {
 		}
 
 		/**
-		 * Memory exceeded
+		 * Checks if memory limits are exceeded.
 		 *
-		 * Ensures the batch process never exceeds 90%
-		 * of the maximum WordPress memory.
+		 * Can be used to ensures the processing never exceeds 90% of the maximum available memory.
 		 *
 		 * @return bool
 		 */
@@ -361,7 +412,7 @@ if ( ! class_exists( 'WP_Background_Process' ) ) {
 		}
 
 		/**
-		 * Get memory limit in bytes.
+		 * Gets the memory limit in bytes.
 		 *
 		 * @return int
 		 */
@@ -403,12 +454,15 @@ if ( ! class_exists( 'WP_Background_Process' ) ) {
 			// Deal with large (float) values which run into the maximum integer size.
 			return min( $bytes, PHP_INT_MAX );
 		}
-
+		
 		/**
-		 * Time exceeded.
+		 * Checks if time limits are exceeded.
 		 *
-		 * Ensures the batch never exceeds a sensible time limit.
+		 * Can be used to ensures the processing never exceeds a sensible execution time limit.
+		 *
 		 * A timeout limit of 30s is common on shared hosting.
+		 *
+		 * Note: This check always returns false if WP_CLI is being used for the current request!
 		 *
 		 * @return bool
 		 */
@@ -428,10 +482,9 @@ if ( ! class_exists( 'WP_Background_Process' ) ) {
 		}
 
 		/**
-		 * Complete.
+		 * This method is called when the processing of all Items in all Batches are completed.
 		 *
-		 * Override if applicable, but ensure that the below actions are
-		 * performed, or, call parent::complete().
+		 * Override if applicable, but ensure that the default actions are performed, or call parent::complete().
 		 */
 		protected function complete() {
 			// Unschedule the cron healthcheck.
@@ -439,9 +492,7 @@ if ( ! class_exists( 'WP_Background_Process' ) ) {
 		}
 
 		/**
-		 * Schedule cron healthcheck
-		 *
-		 * @access public
+		 * Schedules a cron health check with WP Cron.
 		 *
 		 * @param mixed $schedules Schedules.
 		 *
@@ -465,10 +516,9 @@ if ( ! class_exists( 'WP_Background_Process' ) ) {
 		}
 
 		/**
-		 * Handle cron healthcheck
+		 * The callback method for the health check scheduled with WP Cron.
 		 *
-		 * Restart the background process if not already running
-		 * and data exists in the queue.
+		 * It restarts the background process if not already running and the queue is not empty.
 		 */
 		public function handle_cron_healthcheck() {
 			if ( $this->is_process_running() ) {
@@ -488,7 +538,9 @@ if ( ! class_exists( 'WP_Background_Process' ) ) {
 		}
 
 		/**
-		 * Schedule event
+		 * Schedules the next health check with WP Cron if there is no such schedule in place already.
+		 *
+		 * @uses wp_schedule_event()
 		 */
 		protected function schedule_event() {
 			if ( ! wp_next_scheduled( $this->cron_hook_identifier ) ) {
@@ -497,7 +549,9 @@ if ( ! class_exists( 'WP_Background_Process' ) ) {
 		}
 
 		/**
-		 * Clear scheduled event
+		 * Removes the scheduled health check from WP Cron
+		 *
+		 * @uses wp_unschedule_event()
 		 */
 		protected function clear_scheduled_event() {
 			$timestamp = wp_next_scheduled( $this->cron_hook_identifier );
@@ -508,30 +562,30 @@ if ( ! class_exists( 'WP_Background_Process' ) ) {
 		}
 
 		/**
-		 * Cancel Process
+		 * Cancels a running process.
 		 *
-		 * Stop processing queue items, clear cronjob and delete batch.
+		 * It removes all Batches from the db Queue and clears the scheduled health checks.
 		 */
 		public function cancel_process() {
-			if ( ! $this->is_queue_empty() ) {
+			while ( ! $this->is_queue_empty() ) {
 				$batch = $this->get_batch();
-
 				$this->delete( $batch->key );
-
-				wp_clear_scheduled_hook( $this->cron_hook_identifier );
 			}
-
+			
+			// ToDo: handle a case, when the Batches are deted from the db Queue, but there is a processing running in parallel, which may write the actual Batch back to the db at the end of it's own run! Probably need to modify update() to check and only update if option is still there.
+			
+			$this->clear_scheduled_event();
 		}
 
 		/**
-		 * Task
+		 * Processes an Item.
 		 *
 		 * Override this method to perform any actions required on each
-		 * queue item. Return the modified item for further processing
+		 * queue Item. Return the modified Item for further processing
 		 * in the next pass through. Or, return false to remove the
-		 * item from the queue.
+		 * Item from the queue.
 		 *
-		 * @param mixed $item Queue item to iterate over.
+		 * @param mixed $item Queue Item to process.
 		 *
 		 * @return mixed
 		 */

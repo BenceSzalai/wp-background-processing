@@ -15,7 +15,8 @@ if ( ! class_exists( 'WP_Async_Request' ) ) {
 	abstract class WP_Async_Request {
 
 		/**
-		 * Prefix
+		 * Prefix is used to create the first part of the unique {@see WP_Async_Request::$identifier}
+		 * in {@see WP_Async_Request::__construct()}.
 		 *
 		 * (default value: 'wp')
 		 *
@@ -25,7 +26,8 @@ if ( ! class_exists( 'WP_Async_Request' ) ) {
 		protected $prefix = 'wp';
 
 		/**
-		 * Action
+		 * Action used to create the second part of the unique {@see WP_Async_Request::$identifier}
+		 * in {@see WP_Async_Request::__construct()}.
 		 *
 		 * (default value: 'async_request')
 		 *
@@ -35,7 +37,16 @@ if ( ! class_exists( 'WP_Async_Request' ) ) {
 		protected $action = 'async_request';
 
 		/**
-		 * Identifier
+		 * Unique identifier for the class.
+		 *
+		 * Serves as the basis for all usages, where a need to uniquely identify the actual implementing class is needed
+		 * such as:
+		 * - the action tag of the WP AJAX calls
+		 * - the prefix of the filters
+		 * - url of the REST interface
+		 *
+		 * Created from {@see WP_Async_Request::$prefix} and {@see WP_Async_Request::$action} in
+		 * {@see WP_Async_Request::__construct()}.
 		 *
 		 * @var mixed
 		 * @access protected
@@ -43,7 +54,7 @@ if ( ! class_exists( 'WP_Async_Request' ) ) {
 		protected $identifier;
 
 		/**
-		 * Data
+		 * Contains the Data to be processed.
 		 *
 		 * (default value: array())
 		 *
@@ -53,7 +64,11 @@ if ( ! class_exists( 'WP_Async_Request' ) ) {
 		protected $data = array();
 
 		/**
-		 * Initiate new async request
+		 * Initiates a new async request.
+		 *
+		 * - Sets {@see WP_Async_Request::$identifier}
+		 * - Registers the required REST route or AJAX calls with WP
+		 *
 		 */
 		public function __construct() {
 			$this->identifier = $this->prefix . '_' . $this->action;
@@ -79,7 +94,7 @@ if ( ! class_exists( 'WP_Async_Request' ) ) {
 		}
 
 		/**
-		 * Set data used during the request
+		 * Sets the Data to be processed (i.e. sets {@see WP_Async_Request::$data}).
 		 *
 		 * @param array $data Data.
 		 *
@@ -92,9 +107,9 @@ if ( ! class_exists( 'WP_Async_Request' ) ) {
 		}
 
 		/**
-		 * Dispatch the async request
+		 * Dispatches the async request.
 		 *
-		 * @return array|WP_Error
+		 * @return array|WP_Error The response from a {@see wp_remote_post()} call.
 		 */
 		public function dispatch() {
 			$url  = add_query_arg( $this->get_query_args(), $this->get_query_url() );
@@ -104,7 +119,17 @@ if ( ! class_exists( 'WP_Async_Request' ) ) {
 		}
 
 		/**
-		 * Get query args
+		 * Gets the query arguments to be used by {@see WP_Async_Request::dispatch()}.
+		 *
+		 * If the class has a {@see $query_args} attribute, that is returned.
+		 *
+		 * Otherwise a new set of arguments are generated.
+		 *
+		 * The generated arguments can also be modified using WP filter with a tag composed as:
+		 *
+		 * `$this->identifier . '_query_args'`
+		 *
+		 * @see WP_Async_Request::$identifier
 		 *
 		 * @return array
 		 */
@@ -134,7 +159,17 @@ if ( ! class_exists( 'WP_Async_Request' ) ) {
 		}
 
 		/**
-		 * Get query URL
+		 * Gets the query URL to be used by {@see WP_Async_Request::dispatch()}.
+		 *
+		 * If the class has a {@see $query_url} attribute, that is returned.
+		 *
+		 * Otherwise a new URL is generated.
+		 *
+		 * The generated URL can also be modified using WP filter with a tag composed as:
+		 *
+		 * `$this->identifier . '_query_url'`
+		 *
+		 * @see WP_Async_Request::$identifier
 		 *
 		 * @return string
 		 */
@@ -157,9 +192,19 @@ if ( ! class_exists( 'WP_Async_Request' ) ) {
 			 */
 			return apply_filters( $this->identifier . '_query_url', $url );
 		}
-
+		
 		/**
-		 * Get post args
+		 * Gets the POST arguments to be used by {@see WP_Async_Request::dispatch()}.
+		 *
+		 * If the class has a {@see $post_args} attribute, that is returned.
+		 *
+		 * Otherwise a new set of arguments are generated.
+		 *
+		 * The generated arguments can also be modified using WP filter with a tag composed as:
+		 *
+		 * `$this->identifier . '_post_args'`
+		 *
+		 * @see WP_Async_Request::$identifier
 		 *
 		 * @return array
 		 */
@@ -191,9 +236,11 @@ if ( ! class_exists( 'WP_Async_Request' ) ) {
 		}
 
 		/**
-		 * Maybe handle
+		 * Conditionally handles the current request if the nonce check is passed.
 		 *
-		 * Check for correct nonce and pass to handler.
+		 * It also closes the HTTP connection ASAP in order to free up the WebServer to process other requests if needed.
+		 *
+		 * @uses WP_Async_Request::handle()
 		 */
 		public function maybe_handle() {
 			// Don't lock up other requests while processing.
@@ -207,20 +254,21 @@ if ( ! class_exists( 'WP_Async_Request' ) ) {
 		}
 
 		/**
-		 * Is REST.
-		 *
 		 * Checks if request is set to use the WordPress REST API instead of AJAX.
+		 *
+		 * To use the REST API create a {@see $use_rest} attribute in the class and set to boolean `true`.
 		 *
 		 * @return boolean
 		 */
 		protected function is_rest() {
 			return ( property_exists( $this, 'use_rest' ) && true === $this->use_rest );
 		}
-
+		
 		/**
-		 * Send or die
+		 * If AJAX is used it is equivalent to calling {@see wp_die()}.
+		 * If REST is used, it returns a valid REST response using {@see rest_ensure_response()}.
 		 *
-		 * @return (WP_Error|WP_HTTP_Response|mixed)
+		 * @return mixed|WP_Error|WP_HTTP_Response|WP_REST_Response|void
 		 */
 		protected function send_or_die() {
 			// If using REST API, return a response.
@@ -238,11 +286,12 @@ if ( ! class_exists( 'WP_Async_Request' ) ) {
 
         /**
          * Finishes replying to the client, but keeps the process running for further (async) code execution.
+         *
          * Ripped from \WC_Background_Emailer::close_http_connection()
+         *
          * @see https://core.trac.wordpress.org/ticket/41358
          */
-        protected function close_http_connection()
-        {
+        protected function close_http_connection() {
             // Only 1 PHP process can access a session object at a time, close this so the next request isn't kept waiting.
             // @codingStandardsIgnoreStart
             if (session_id()) {
@@ -271,9 +320,9 @@ if ( ! class_exists( 'WP_Async_Request' ) ) {
         }
 
 		/**
-		 * Check Nonce.
+		 * Checks if the nonce is valid, and dies otherwise.
 		 *
-		 * Check if nonce is valid, else die.
+		 * A wrapper around {@see check_ajax_referer()} WP function to properly handle both AJAX and REST mode.
 		 */
 		protected function check_nonce() {
 			
@@ -290,11 +339,11 @@ if ( ! class_exists( 'WP_Async_Request' ) ) {
 				$query_arg = '_wpnonce';
 			}
 			
-			check_ajax_referer( $action, $query_arg );
+			check_ajax_referer( $action, $query_arg ); // Shouldn't we use wp_verify_nonce() for REST instead?
 		}
 
 		/**
-		 * Handle
+		 * Handles the actual processing.
 		 *
 		 * Override this method to perform any actions required
 		 * during the async request.
